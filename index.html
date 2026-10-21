@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>❤ · 粒子玫瑰花束</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020106;color:#fff7fa;font-family:"PingFang SC","Microsoft YaHei",sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}.shade{position:fixed;inset:0;pointer-events:none;background:linear-gradient(#04010899,transparent 24%,transparent 74%,#030107cc),radial-gradient(circle at 50% 49%,transparent 43%,#01000488);z-index:1}.top{position:fixed;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:22px clamp(18px,4vw,58px);font-size:11px;letter-spacing:.14em;color:#fff0f6aa}.brand{display:flex;gap:10px;align-items:center}.star{color:#ff91b1;text-shadow:0 0 18px #ff356d;font-size:18px}.actions{display:flex;gap:8px}.actions button{height:36px;padding:0 13px;border:1px solid #ffffff25;border-radius:999px;background:#ffffff0e;color:#ffffffcc;backdrop-filter:blur(12px);cursor:pointer}.title{position:fixed;z-index:2;top:clamp(78px,12vh,122px);left:50%;transform:translateX(-50%);width:94vw;text-align:center;pointer-events:none}.title small{display:block;margin-bottom:8px;color:#ffadc4bd;font-size:9px;letter-spacing:.36em}.title h1{margin:0;font-family:"Songti SC","STSong",serif;font-size:clamp(28px,4.2vw,52px);font-weight:500;letter-spacing:.1em;text-shadow:0 3px 34px #ff386f44}.title p{margin:10px 0 0;color:#ffeef499;font-family:"Songti SC",serif;font-size:clamp(12px,1.5vw,16px);letter-spacing:.12em}.bottom{position:fixed;z-index:2;left:50%;bottom:clamp(26px,7vh,66px);transform:translateX(-50%);width:94vw;text-align:center}.hint{margin:0 0 15px;color:#ffffff7a;font-size:10px;letter-spacing:.08em}.hint b{color:#ff5d87;margin:0 10px}.bloom{height:50px;padding:0 24px;border:1px solid #ff87a994;border-radius:999px;color:#fff8fa;background:linear-gradient(135deg,#ff3f734d,#8e12442e);box-shadow:inset 0 0 28px #ff47791f,0 12px 42px #77002940;backdrop-filter:blur(16px);font-size:14px;letter-spacing:.08em;cursor:pointer}.bloom:active{transform:scale(.98)}.count{position:fixed;z-index:2;right:4vw;bottom:27px;color:#ffffff66;font-size:8px;letter-spacing:.14em}.count:before{content:"";display:inline-block;width:5px;height:5px;margin-right:8px;border-radius:50%;background:#ff4979;box-shadow:0 0 10px #ff4979}@media(max-width:640px){.top{padding:16px}.actions button:first-child{display:none}.title{top:78px}.bottom{bottom:28px}.count{display:none}.hint{font-size:9px}.title p{margin-top:6px}}@media(max-height:680px){.title{top:62px}.title small,.title p{display:none}.bottom{bottom:16px}.hint{margin-bottom:9px}}
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="3D粒子玫瑰花束"></canvas><div class="shade"></div>
+  <header class="top"><div class="brand"><span class="star">✦</span>❤ / 2026</div><div class="actions"><button id="spin">● 缓慢旋转</button><button id="full">⌗ 全屏</button></div></header>
+  <section class="title"><small>A BOUQUET MADE OF LIGHT</small><h2>粒子玫瑰花束</h2><p>让每一颗微光，都照亮你。</p></section>
+  <section class="bottom"><p class="hint">自动缓旋<b>·</b>滚轮 / 双指缩放<b>·</b>点击绽放</p><button class="bloom" id="bloom">✦　让花束再次绽放</button></section><div class="count">15,000+ PARTICLES</div>
+  <script>
+  (()=>{
+    const C=document.querySelector('#scene'),X=C.getContext('2d',{alpha:false}),T=Math.PI*2,P=[];let W=1,H=1,D=1,yaw=0,pitch=-.08,ty=0,tp=-.08,zoom=1,auto=true,start=performance.now(),drag=false,last={x:0,y:0},pinch=0;const fingers=new Map();
+    const rng=s=>()=>{let t=s+=0x6d2b79f5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};const R=rng(20260819),norm=p=>{let l=Math.hypot(p.x,p.y,p.z)||1;return{x:p.x/l,y:p.y/l,z:p.z/l}},cross=(a,b)=>({x:a.y*b.z-a.z*b.y,y:a.z*b.x-a.x*b.z,z:a.x*b.y-a.y*b.x});
+    /* ===== 玫瑰单花生成器（图片"高心翘角"杯状玫瑰，1:1 复刻）=====
+       关键改造：从"散点螺旋"改为"花瓣簇"结构，让粒子聚成可见瓣形
+       - 4 层花瓣 × 5 瓣/层 × 5 粒子/瓣 = 100 颗粒子构成可见花瓣簇
+       - 每瓣 5 颗粒子按 "+" 形铺开 (基部/尖端/左/右/中心), 形成连贯瓣形而非散点
+       - 内层(Layer 0): 紧密包裹内卷, 沿法线 +0.5rad 高耸成心
+       - 中层(Layer 1-2): 碗状展开, 沿法线递减
+       - 外层(Layer 3): 外翻舒展, 沿法线 -0.2rad 反折向下
+       - 层间黄金角错位 2.4rad (≈137.5°) 形成螺旋错落
+       - 每瓣宽度用 sin(t*PI) 调制, 中部最宽形成椭圆瓣形
+       - 瓣尖外翻 tipflare 随层数与 t² 递增, 模拟外瓣舒展
+       - n: 花头朝向 = norm(花心 - 球心 (0,-1,0)), 让半球花束的花朵自然朝外
+       - u,v: 与 n 正交的切平面基, 构成花瓣铺开的局部坐标 */
+    function rose(c,rad,seed){
+      let q=rng(seed),
+          n=norm({x:c.x,y:c.y+1.0,z:c.z}),
+          u=norm(cross(Math.abs(n.y)>.86?{x:1,y:0,z:0}:{x:0,y:1,z:0},n)),
+          v=norm(cross(n,u)),
+          /* 图片配色：E88A9A 深粉主调 / F4A4B4 柔粉 / FAD4DC 高光粉 / D6788A 内瓣阴影 / FFE4E8 白粉边缘发光 / F0B5C4 中间过渡 */
+          pal=['#E88A9A','#F4A4B4','#FAD4DC','#D6788A','#FFE4E8','#F0B5C4'];
+      /* 每瓣 5 颗粒子的局部位置: t=沿长度(0基→1尖), w=宽度方向(-1~1)
+         按 "+" 形分布: 基/尖/左/右/中, 形成连贯瓣形 */
+      const PETAL_POS=[{t:0,w:0},{t:1,w:0},{t:.5,w:-1},{t:.5,w:1},{t:.5,w:0}];
+      const LAYERS=4,PETALS=5;
+      for(let L=0;L<LAYERS;L++){
+        let Lt=L/(LAYERS-1),                                /* 0=内, 1=外 */
+            Lr=rad*(0.10+Lt*0.90),                           /* 层半径: 内小外大 */
+            Llen=rad*(0.10+Lt*0.15),                        /* 层花瓣长度 */
+            Ll=rad*(0.5*(1-Lt)*(1-Lt)-0.2*Lt),               /* 高心翘角: 内+0.5rad, 外-0.2rad */
+            Loffset=L*2.4;                                  /* 黄金角错位 (≈137.5°) */
+        for(let p=0;p<PETALS;p++){
+          let baseAng=p/PETALS*T+Loffset;
+          for(let i=0;i<PETAL_POS.length;i++){
+            let pp=PETAL_POS[i],
+                len=Lr+pp.t*Llen,                             /* 沿花瓣长度方向 */
+                wid=Math.sin(pp.t*Math.PI)*rad*0.08,          /* 花瓣宽度: sin 调制中部最宽 */
+                wOff=pp.w*wid+(q()-0.5)*wid*0.3,              /* 宽度方向偏移 + 小抖动 */
+                tipflare=Lt*pp.t*pp.t*rad*0.08,               /* 瓣尖外翻（外层 + 瓣尖处更明显） */
+                lx=len*Math.cos(baseAng)-wOff*Math.sin(baseAng),
+                ly=len*Math.sin(baseAng)+wOff*Math.cos(baseAng),
+                lz=Ll+tipflare+Math.sin(pp.t*Math.PI)*rad*0.025;
+            P.push({x:c.x+u.x*lx+v.x*ly+n.x*lz,y:c.y+u.y*lx+v.y*ly+n.y*lz,z:c.z+u.z*lx+v.z*ly+n.z*lz,
+                    s:0.018+q()*0.018,                       /* 中等粒子, 让花瓣致密 */
+                    c:pal[(q()*pal.length)|0],
+                    a:0.75+q()*0.25,d:q()*0.4})
+          }
+        }
+      }
+      /* 花蕊: 12 颗发光粒子聚于花心高耸处 (沿法线 +0.45rad 顶部) */
+      for(let i=0;i<12;i++){
+        let a=q()*T,r=q()*rad*0.12;
+        P.push({x:c.x+u.x*Math.cos(a)*r+v.x*Math.sin(a)*r+n.x*rad*0.45,
+                y:c.y+u.y*Math.cos(a)*r+v.y*Math.sin(a)*r+n.y*rad*0.45,
+                z:c.z+u.z*Math.cos(a)*r+v.z*Math.sin(a)*r+n.z*rad*0.45,
+                s:0.014+q()*0.015,
+                c:q()>.5?'#FFF0F5':'#FAD4DC',                /* 图片白粉发光色：lavender blush / 高光粉 */
+                a:0.9,d:q()*0.22,g:1})                       /* g=1 标记为强发光粒子 */
+      }
+    }
+    /* 99 朵玫瑰 Fibonacci 半球分布 —— 球面均匀采样 99 点
+       每朵花心位置由 polar 角 phi (0=顶 → PI/2=赤道) + 方位角 theta (黄金角递增) 确定
+       球心 (0,-1,0), 半径 2.0, 顶部 y=1, 赤道 y=-1
+       rose() 中 n=norm(花心-球心) 让每朵花自然朝向球心外方向
+       花朵半径 0.34rad 较小，让 99 朵密集排布成半球花束 */
+    const N_ROSES=99,BOUQUET_R=2.0,BOUQUET_CY=-1.0;
+    let centers=[];
+    for(let i=0;i<N_ROSES;i++){
+      let t=(i+0.5)/N_ROSES,                                /* 0~1 归一化索引 */
+          phi=Math.acos(1-t),                               /* polar 角: 0=顶, PI/2=赤道 */
+          theta=Math.PI*(1+Math.sqrt(5))*i,                 /* 黄金角方位角递增 */
+          x=BOUQUET_R*Math.sin(phi)*Math.cos(theta),
+          y=BOUQUET_R*Math.cos(phi)+BOUQUET_CY,
+          z=BOUQUET_R*Math.sin(phi)*Math.sin(theta);
+      centers.push({x:x+(R()-0.5)*0.04,y:y+(R()-0.5)*0.04,z:z+(R()-0.5)*0.04});
+    }
+    centers.forEach((c,i)=>rose(c,0.34+R()*0.06,800+i));
+    /* 环境光点：52 簇粒子散布花束周围，模拟图片中的星点雪花与发光氛围
+       配色用纯白 #FFFFFF + 淡青 #E0F0FF，呼应图片背景冷调 */
+    for(let k=0;k<52;k++){let a=R()*Math.PI,r=.5+R()*2.65,b={x:Math.cos(a)*r,y:1.22-Math.sin(a)*r*.72+R()*.95,z:(R()-.5)*1.6+.25};for(let i=0;i<10;i++)P.push({x:b.x+(R()-.5)*.28,y:b.y+(R()-.5)*.28,z:b.z+(R()-.5)*.28,s:.015+R()*.025,c:R()>.35?'#FFFFFF':'#E0F0FF',a:.75+R()*.25,d:.18+R()*.55,g:1})}
+    /* 花茎：每朵花心 -> 底部束口 (0,-2.42,0) 的曲线粒子链
+       配色用图片中的 dusty rose（#C495A0 / #A6788A），与花瓣同色系保持整体粉调统一 */
+    centers.forEach((c,k)=>{let q=rng(k+9100),e={x:(q()-.5)*.22,y:-2.42-q()*.18,z:(q()-.5)*.18};for(let i=0;i<20;i++){let t=i/19;P.push({x:c.x*(1-t)+e.x*t+Math.sin(t*Math.PI)*(q()-.5)*.08,y:(c.y-.05)*(1-t)+e.y*t,z:c.z*(1-t)+e.z*t,s:.008+q()*.011,c:q()>.45?'#C495A0':'#A6788A',a:.28+q()*.34,d:.08+q()*.34})}});
+    /* 蝴蝶结束口：螺旋飘带（900 颗）+ 下垂双带（520 颗）
+       配色用图片柔粉 #F4A4B4/#E88A9A，与花瓣同色系，整体粉调统一 */
+    const rib=(x,y,z,d)=>P.push({x,y,z,s:.017+R()*.015,c:R()>.35?'#F4A4B4':'#E88A9A',a:.7+R()*.25,d,g:R()>.78});
+    for(let i=0;i<900;i++){let t=i/900,s=i%2?1:-1,a=t*T*3;rib(s*(.12+Math.sin(a)*.48),-1.72+Math.cos(a)*.28,Math.sin(a*.5)*.18+.34,R()*.3)}
+    for(let i=0;i<520;i++){let t=i/520,s=i%2?1:-1;rib(s*(.1+t*.28+Math.sin(t*18)*.05),-1.86-t*1.05,.28+Math.sin(t*9)*.08,.22+R()*.36)}
+    function size(){let r=C.getBoundingClientRect();D=Math.min(devicePixelRatio||1,1.75);W=r.width;H=r.height;C.width=W*D;C.height=H*D;X.setTransform(D,0,0,D,0,0)}size();addEventListener('resize',size);const ease=t=>1+2.70158*Math.pow(t-1,3)+1.70158*Math.pow(t-1,2);
+    /* ===== 渲染管线 =====
+       1) 自动缓旋 + 鼠标阻尼插值（pitch/yaw 缓动到目标值）
+       2) 径向暗色背景（图片深紫黑 #160811 ~ #020106，中心略亮模拟聚光）
+       3) 粒子 3D->2D 投影：yaw/pitch 旋转 + 透视缩放 k=6.8/(7.4-z)
+       4) 按 Z 排序后画家算法绘制（远先画近后画，正确遮挡）
+       ---- 渲染风格（匹配图片"霓虹粉彩 + 自发光轮廓"）----
+       分级自发光（节省 99 朵 × 15k 粒子的渲染开销）：
+         - g 标记粒子（花蕊/光点）：本色强光晕（r*5）模拟高光中心
+         - 大花瓣粒子（r>3）：白粉色 #FFE4E8 柔光晕（r*1.8）模拟自发光轮廓
+         - 小粒子：无光晕，直接填充 */
+    function draw(now){
+      requestAnimationFrame(draw);
+      if(auto&&!drag)ty+=.0017;                                       /* 自动缓旋角速度 */
+      yaw+=(ty-yaw)*.075;pitch+=(tp-pitch)*.075;                     /* 阻尼插值，让旋转更顺滑 */
+      let bloom=Math.min(1,(now-start)/2500),                         /* 绽放进度：0->1 用 2.5s */
+          bg=X.createRadialGradient(W*.5,H*.44,20,W*.5,H*.5,Math.max(W,H)*.72);
+      bg.addColorStop(0,'#160811');bg.addColorStop(.48,'#08040b');bg.addColorStop(1,'#020106');
+      X.fillStyle=bg;X.fillRect(0,0,W,H);
+      let cy=Math.cos(yaw),sy=Math.sin(yaw),cx=Math.cos(pitch),sx=Math.sin(pitch),
+          sc=Math.min(W/7.35,H/6.2)*zoom,Q=[];
+      for(const p of P){
+        let b=Math.max(0,Math.min(1,(bloom-p.d*.65)/Math.max(.15,1-p.d*.65))),  /* 每粒子的绽放因子：受全局 bloom 与个体延迟 d 调制 */
+            e=ease(b),                                                  /* easeOutBack 缓动，让花瓣有"弹出"感 */
+            x=p.x*e,y=-2+(p.y+2)*e,z=p.z*e,                             /* 绽放位移：从底部长出 */
+            x1=x*cy-z*sy,z1=x*sy+z*cy,                                 /* yaw 绕 Y 旋转 */
+            y1=y*cx-z1*sx,z2=y*sx+z1*cx,                               /* pitch 绕 X 旋转 */
+            k=6.8/(7.4-z2);                                             /* 透视缩放：越近越大 */
+        Q.push({...p,X:W*.5+x1*sc*k,Y:H*.485-y1*sc*k,Z:z2,b})
+      }
+      Q.sort((a,b)=>a.Z-b.Z);
+      for(const p of Q){
+        if(p.b<.01)continue;                                            /* 未绽放粒子跳过 */
+        let k=6.8/(7.4-p.Z),r=Math.max(.42,p.s*sc*k*(.48+p.b*.62));
+        X.globalAlpha=p.a*(.23+p.b*.77)*Math.max(.42,Math.min(1.08,k));
+        if(p.g&&r>1){X.shadowBlur=r*5;X.shadowColor=p.c}            /* 花蕊/光点：本色强光晕 */
+        else if(r>3){X.shadowBlur=r*1.8;X.shadowColor='#FFE4E8'}   /* 仅大花瓣粒子启用柔光晕, 节省 15k 粒子性能 */
+        else X.shadowBlur=0;
+        X.fillStyle=p.c;X.beginPath();X.arc(p.X,p.Y,r,0,T);X.fill()
+      }
+      X.shadowBlur=0;X.globalAlpha=1
+    }
+    requestAnimationFrame(draw);
+    /* 交互：已移除拖动旋转，仅保留滚轮缩放（用户要求）
+       draw() 中的 drag 永远为 false，auto=true 时自动缓旋，按"暂停"按钮可停 */
+    C.onwheel=e=>zoom=Math.max(.72,Math.min(1.42,zoom-e.deltaY*.0008));
+    document.querySelector('#bloom').onclick=()=>start=performance.now();document.querySelector('#spin').onclick=e=>{auto=!auto;e.currentTarget.textContent=auto?'● 缓慢旋转':'○ 已暂停'};document.querySelector('#full').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+  })();
+  </script>
+</body>
+</html>
